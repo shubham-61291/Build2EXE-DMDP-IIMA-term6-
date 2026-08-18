@@ -1,4 +1,3 @@
-```markdown
 # Build2EXE — Prompt. Build. Launch.
 
 **AI-powered Windows application generation from plain-English requirements**
@@ -63,7 +62,6 @@ For non-technical users, these steps represent a significant barrier between an 
 
 Build2EXE attempts to reduce this barrier by providing an AI-driven interface where the primary input is a natural-language description of the desired application.
 
----
 
 ## Solution
 
