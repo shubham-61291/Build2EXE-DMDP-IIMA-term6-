@@ -773,4 +773,4 @@ Build2EXE is an MVP demonstrating an end-to-end path from natural-language inten
 The central product insight is not simply that an AI model can generate Python code. The more important proposition is that code generation, validation, repair, version control, Windows compilation, artifact management, and delivery can be composed into a single user-facing workflow.
 
 That architecture provides the foundation for progressively increasing reliability, application complexity, and platform coverage.
-```
+
