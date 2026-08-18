@@ -62,6 +62,7 @@ For non-technical users, these steps represent a significant barrier between an 
 
 Build2EXE attempts to reduce this barrier by providing an AI-driven interface where the primary input is a natural-language description of the desired application.
 
+---
 
 ## Solution
 
@@ -93,7 +94,7 @@ GitHub Actions Windows Runner
 Windows EXE Artifact
           ↓
 Downloadable app.exe
-```
+
 
 The main Build2EXE repository contains the application/orchestration code and demonstration assets. The Windows build workflow is maintained in a **separate repository** and is triggered by Build2EXE when a generated application is ready to compile.
 
@@ -410,7 +411,11 @@ The generated source is pushed to a unique branch in the separate build reposito
 
 The resulting executable is returned through the Build2EXE interface.
 
-*See the Loan Planner and Inventory Manager screenshots above for evidence of the generated applications.*
+**Loan Planner:**
+![Loan Planner Executable](loan_planner.jpeg)
+
+**Inventory Manager Dashboard:**
+![Inventory Manager Executable](Generated_Inventory_Manager_executable.jpeg)
 
 ---
 
