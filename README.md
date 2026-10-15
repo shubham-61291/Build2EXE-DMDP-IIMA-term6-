@@ -1,776 +1,307 @@
 # Build2EXE — Prompt. Build. Launch.
 
-**AI-powered Windows application generation from plain-English requirements**
+**Turn plain-English requirements into downloadable Windows applications.**
 
-Build2EXE is an AI-assisted application generation platform that converts a user's natural-language application requirement into a functional Windows `.exe`.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Build target](https://img.shields.io/badge/Build-Windows%20EXE-0078D4.svg)](https://github.com/shubham-61291/agentic-exe-builder_1)
 
-The system combines an AI coding agent, local sanity validation, automated repair, Git-based versioning, a separate GitHub Actions build repository, and artifact delivery into a single workflow.
+Build2EXE is an AI-assisted application-generation MVP. A user describes a desktop application in natural language; an agent generates Python source and dependencies, checks the source for syntax errors, attempts bounded repairs when needed, then hands the generated project to a separate GitHub repository for Windows packaging with GitHub Actions and PyInstaller. On success, the resulting `app.exe` is retrieved for download through the Gradio interface.
 
----
+> **Project boundary:** Build2EXE is an MVP, not a general-purpose software engineer. Its pre-build validation is a Python syntax check, not proof that every feature works correctly. The current workflow targets Python desktop applications packaged for Windows.
 
-## Table of Contents
+## Table of contents
 
-- [Overview](#overview)
-- [Problem](#problem)
-- [Solution](#solution)
-- [Core Workflow](#core-workflow)
-- [System Architecture](#system-architecture)
-- [Technology Stack](#technology-stack)
-- [Key Features](#key-features)
-- [Validation Applications](#validation-applications)
-- [Evidence and Demonstration](#evidence-and-demonstration)
-- [Build Pipeline](#build-pipeline)
-- [Repository Structure](#repository-structure)
-- [Current MVP Scope](#current-mvp-scope)
-- [Known Limitations](#known-limitations)
-- [Future Roadmap](#future-roadmap)
-- [Security and Secrets](#security-and-secrets)
-- [How to Run](#how-to-run)
-- [Project Context](#project-context)
+- [At a glance](#at-a-glance)
+- [How it works](#how-it-works)
+- [Architecture](#architecture)
+- [Technology stack](#technology-stack)
+- [Demonstration applications](#demonstration-applications)
+- [Screenshots](#screenshots)
+- [Repository layout](#repository-layout)
+- [Run the MVP](#run-the-mvp)
+- [Configuration and secrets](#configuration-and-secrets)
+- [Validation and limitations](#validation-and-limitations)
+- [Security notes](#security-notes)
+- [Roadmap](#roadmap)
+- [Author](#author)
+- [License](#license)
 
----
+## At a glance
 
-## Overview
+| Capability | Current implementation |
+|---|---|
+| Input | Plain-English application requirements |
+| Code generation | ReAct-style agent using GPT-4.1-mini |
+| Generated files | `src/main.py` and `requirements.txt` |
+| Pre-build validation | `python -m py_compile src/main.py` |
+| Automated repair | Up to four patch rounds after a failed syntax check |
+| Build isolation | A unique `build-YYYYMMDD_HHMMSS` branch for each generation |
+| Windows packaging | Separate repository and GitHub Actions `windows-latest` runner |
+| Executable packaging | PyInstaller, producing `app.exe` |
+| Artifact delivery | Downloads the `windows-exe` GitHub Actions artifact and exposes `app.exe` in the UI |
+| Interface | Gradio with build status and agent logs |
 
-Build2EXE addresses a simple problem:
+## How it works
 
-> A user may know what software they want without knowing how to code it.
+1. **Describe:** The user enters the application requirements in plain English.
+2. **Generate:** The coding agent writes `src/main.py` and `requirements.txt` using file tools.
+3. **Check:** Build2EXE runs Python's compile check against the generated source.
+4. **Repair if needed:** If compilation fails, a patch agent receives the relevant log context and attempts a repair, up to four rounds.
+5. **Isolate the build:** The generated source is committed to a unique branch in the build repository.
+6. **Package on Windows:** Build2EXE dispatches the GitHub Actions workflow, which installs dependencies and runs PyInstaller on a Windows runner.
+7. **Retrieve the artifact:** The orchestration code waits for the workflow, downloads the `windows-exe` artifact, extracts `app.exe`, and makes it available through Gradio.
 
-Instead of requiring the user to install a development environment, write Python code, resolve dependencies, configure PyInstaller, and create a Windows executable manually, Build2EXE accepts a plain-English requirement and automates the majority of this process.
-
-### Product proposition
-
-**Describe → Generate → Validate → Build → Download**
-
-The current MVP focuses on generating Windows desktop applications written in Python and packaging them into a downloadable `.exe`.
-
----
-
-## Problem
-
-Traditional desktop application development requires users to understand several technical steps:
-
-1. Translate an idea into technical requirements.
-2. Write application code.
-3. Install and manage dependencies.
-4. Debug syntax and implementation errors.
-5. Package the application.
-6. Configure a Windows build environment.
-7. Produce and distribute an executable.
-
-For non-technical users, these steps represent a significant barrier between an idea and a usable application.
-
-Build2EXE attempts to reduce this barrier by providing an AI-driven interface where the primary input is a natural-language description of the desired application.
-
----
-
-## Solution
-
-Build2EXE uses an **agentic workflow** rather than a single code-generation call.
-
-```text
-Plain-English Requirement
-          ↓
-ReAct Code Generation Agent
-          ↓
-src/main.py + requirements.txt
-          ↓
-Compile Sanity Check
-          ↓
-      PASS / FAIL
-       ↙       ↘
-     PASS      FAIL
-      ↓          ↓
-GitHub Build   Patch Agent
-      ↑          │
-      └──────────┘
-          ↓
-Unique Git Branch
-          ↓
-Separate Build Repository
-          ↓
-GitHub Actions Windows Runner
-          ↓
-Windows EXE Artifact
-          ↓
-Downloadable app.exe
-
-
-The main Build2EXE repository contains the application/orchestration code and demonstration assets. The Windows build workflow is maintained in a **separate repository** and is triggered by Build2EXE when a generated application is ready to compile.
-
----
-
-## Core Workflow
-
-### 1. User requirement
-
-The user enters a plain-English description of the desired application.
-
-**Example:**
-
-```
-Create a desktop loan planner that compares three loan scenarios, calculates EMI and interest, displays an amortization schedule, and exports the results to CSV.
+```mermaid
+flowchart TD
+    A[Plain-English requirement] --> B[ReAct coding agent]
+    B --> C[src/main.py + requirements.txt]
+    C --> D{Python compile check}
+    D -- Pass --> E[Create unique Git branch]
+    D -- Fail --> F[Patch agent]
+    F --> G{Patch rounds remaining?}
+    G -- Yes --> D
+    G -- No --> H[Stop with failure]
+    E --> I[Separate build repository]
+    I --> J[GitHub Actions on Windows]
+    J --> K[PyInstaller]
+    K --> L[windows-exe artifact]
+    L --> M[Download app.exe in Gradio]
 ```
 
-### 2. AI code generation
+## Architecture
 
-The ReAct-style coding agent generates:
+The system separates application generation from Windows build infrastructure.
 
-- `src/main.py`
-- `requirements.txt`
+| Component | Responsibility |
+|---|---|
+| **Build2EXE / Gradio** | Captures requirements and presents generation status, logs, and the final executable |
+| **LangGraph workflow** | Orchestrates workspace setup, code generation, syntax validation, repair, and build handoff |
+| **ReAct coding agent** | Generates the app and dependency list using `write_file` and `read_file` tools |
+| **Sanity checker** | Runs `python -m py_compile src/main.py` before the remote build |
+| **Patch agent** | Attempts to repair compilation failures, with a maximum of four rounds |
+| **Build repository** | Receives the generated source on a uniquely named branch |
+| **GitHub Actions** | Builds on `windows-latest`, installs dependencies, invokes PyInstaller, and uploads `windows-exe` |
+| **Artifact retrieval** | Downloads the workflow artifact and extracts `app.exe` for the user |
 
-The model is instructed to produce a complete runnable application rather than a partial prototype.
+The build workflow lives in a separate repository: [`agentic-exe-builder_1`](https://github.com/shubham-61291/agentic-exe-builder_1). It is not defined by this repository's `README.md` or by the main orchestration source alone.
 
-### 3. Local sanity validation
-
-Before sending the project to the Windows build process, Build2EXE runs:
-
-```bash
-python -m py_compile src/main.py
-```
-
-This catches basic Python syntax/compilation errors early.
-
-### 4. Automatic repair
-
-If the sanity check fails, the patch agent receives the error information and attempts a repair.
-
-The MVP allows up to **4 patch rounds**.
-
-### 5. Git branch isolation
-
-Each build receives a unique branch:
-
-```
-build-YYYYMMDD_HHMMSS
-```
-
-This prevents separate generations from interfering with one another.
-
-### 6. Build repository handoff
-
-The generated source is pushed to the configured build repository on the unique branch.
-
-The build repository is separate from the main Build2EXE repository. Its purpose is to provide the Windows GitHub Actions build environment.
-
-### 7. Windows build
-
-The separate build repository triggers its GitHub Actions workflow on the generated branch.
-
-The Windows runner builds:
-
-```
-app.exe
-```
-
-using PyInstaller.
-
-### 8. Artifact retrieval
-
-The Build2EXE agent waits for the GitHub Actions run to complete, retrieves the `windows-exe` artifact, extracts the executable, and exposes the resulting `app.exe` through the application interface.
-
----
-
-## System Architecture
-
-```text
-┌─────────────────────────────┐
-│       User Interface        │
-│       Gradio Web UI         │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│     ReAct Coding Agent      │
-│        GPT-4.1-mini         │
-└──────────────┬──────────────┘
-               │
-        write_file/read_file
-               │
-               ▼
-┌─────────────────────────────┐
-│      Generated Project      │
-│  src/main.py                │
-│  requirements.txt           │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│   Compile Sanity Check      │
-│   python -m py_compile      │
-└──────────────┬──────────────┘
-               │
-          FAIL │ PASS
-               │
-               ▼
-┌─────────────────────────────┐
-│       Patch Agent           │
-│      Max 4 rounds           │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│       Build Repository      │
-│      Unique build branch    │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│    GitHub Actions Runner    │
-│          Windows            │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│       windows-exe           │
-│          app.exe            │
-└──────────────┬──────────────┘
-               │
-               ▼
-          User Download
-```
-
----
-
-## Technology Stack
+## Technology stack
 
 | Layer | Technology |
-|-------|------------|
-| **Language** | Python 3.11+ |
-| **AI model** | GPT-4.1-mini |
-| **Agent orchestration** | LangGraph |
-| **LLM framework** | LangChain / langchain-openai |
-| **UI** | Gradio |
-| **Validation** | Python `py_compile` |
-| **Version control** | Git / GitHub |
-| **CI/CD** | GitHub Actions |
-| **Windows packaging** | PyInstaller |
-| **GitHub integration** | GitHub REST API + Git |
-| **Artifact delivery** | GitHub Actions artifacts |
+|---|---|
+| Language | Python 3.11+ on the Windows build runner |
+| Model | GPT-4.1-mini |
+| Agent orchestration | LangGraph |
+| LLM integration | LangChain, `langchain-openai` |
+| User interface | Gradio |
+| Source validation | Python `py_compile` |
+| Version control | Git and GitHub |
+| Build orchestration | GitHub REST API and GitHub Actions |
+| Windows packaging | PyInstaller |
+| Artifact delivery | GitHub Actions artifacts |
+| MVP execution environment | Google Colab |
 
----
+## Demonstration applications
 
-## Key Features
-
-- **Natural-language application specification** – Users describe the desired application instead of manually writing source code.
-- **Agentic code generation** – The system uses a ReAct-style agent with file-writing and file-reading tools.
-- **Automatic compile validation** – Generated Python source is checked before the Windows build.
-- **Automatic repair** – Syntax failures can trigger an automated patch cycle.
-- **Isolated builds** – Every generation is assigned its own Git branch.
-- **Automated Windows packaging** – A separate GitHub repository provides the Windows GitHub Actions build environment.
-- **Downloadable executable** – The final artifact is extracted as `app.exe`.
-- **Live build status** – The interface exposes build status and live agent logs.
-
----
-
-## Validation Applications
-
-Two substantial applications were used to validate whether Build2EXE could move beyond simple toy examples.
+The repository includes screenshots from two substantial applications used to demonstrate the end-to-end flow. These examples are feasibility demonstrations, not a statistical estimate of generation reliability.
 
 ### 1. Magnetar Loan Planner
 
-The Loan Planner was generated as a functional desktop application for comparing loan scenarios.
+A desktop loan-planning application generated and packaged as a Windows executable. Its demonstrated features include:
 
-#### Core functionality
-
-- Compare up to three loan scenarios
-- Loan amount
-- Annual interest rate
-- Loan tenure
-- Months/years selection
-- Processing fee
-- Additional monthly payment
-- Start date
-- EMI calculation
-- Total payable amount
-- Total interest
-- Processing cost
-- Effective total cost
-- Payment schedule
-- Estimated payoff date
+- Comparing up to three loan scenarios
+- Loan amount, annual interest rate, and loan tenure inputs
+- Months/years selection, processing fees, additional monthly payments, and start date
+- EMI, total payable amount, total interest, processing cost, and effective cost calculations
+- Payment schedule and estimated payoff date
 - CSV export
 
-The application was tested as an actual Windows executable rather than only being inspected as source code.
-
-**Screenshot:**
-
-![Magnetar Loan Planner](loan_planner.jpeg)
-
----
+![Magnetar Loan Planner desktop application](./loan_planner.jpeg)
 
 ### 2. Magnetar Inventory Manager
 
-The second validation case was a more operational desktop application.
+An inventory-management desktop application with a dashboard, product-level stock views, reorder analysis, transaction records, and CSV reporting.
 
-#### Dashboard
+**Dashboard and stock overview**
 
-The dashboard provides:
+![Inventory Manager dashboard](./Generated_Inventory_Manager_executable.jpeg)
 
-- Total products
-- Total inventory units
-- Total inventory value
-- Low-stock products
-- Out-of-stock products
-- Products requiring reorder
-- Estimated reorder cost
-- Inventory charts
-- Stock status distribution
+**Product-level inventory**
 
-**Screenshot:**
+![Product-level stock information](./product_level_stock_information.jpeg)
 
-![Inventory Manager Dashboard](Generated_Inventory_Manager_executable.jpeg)
+**Reorder analysis**
 
-#### Inventory management
+![Inventory reorder analysis](./reorder_analysis.jpeg)
 
-The inventory interface supports:
+**Stock transactions**
 
-- Product search
-- Category filtering
-- Supplier filtering
-- Sorting
-- Product records
-- Current stock
-- Reorder levels
-- Unit cost
-- Inventory value
-- Stock status
-- Add/edit/delete operations
-- CSV import
+![Inventory transaction interface](./transaction_interface.jpeg)
 
-**Screenshot:**
+**Inventory report export**
 
-![Inventory Management Interface](product_level_stock_information.jpeg)
+![Inventory CSV export interface](./csv_export_inventory.jpeg)
 
-#### Reordering
+**Downloaded CSV output**
 
-The reorder functionality identifies products requiring replenishment and calculates:
+![Downloaded inventory CSV](./csv_downloaded.jpeg)
 
-- Current stock
-- Reorder level
-- Target stock
-- Recommended quantity
-- Unit cost
-- Estimated purchase cost
-- Lead time
+**Adding inventory**
 
-**Screenshot:**
+![Inventory addition interface](./inventory_addition.jpeg)
 
-![Reorder Analysis](reorder_analysis.jpeg)
-
-#### Transactions
-
-The transaction interface supports stock movement records, including:
-
-- Receive stock
-- SKU
-- Quantity
-- Reference
-- Notes
-- Previous stock
-- New stock
-
-**Screenshot:**
-
-![Transaction Interface](transaction_interface.jpeg)
-
-#### Reports
-
-The reporting section provides export functionality for inventory, reorder, and transaction reports.
-
-**Screenshot (Inventory report export):**
-
-![Inventory Report Export](csv_export_inventory.jpeg)
-
-**Screenshot (Downloaded CSV):**
-
-![CSV Downloaded](csv_downloaded.jpeg)
-
-**Screenshot (Inventory addition):**
-
-![Inventory Addition](inventory_addition.jpeg)
-
----
-
-## Evidence and Demonstration
-
-The repository contains screenshots and generated data used to demonstrate the MVP.
+## Screenshots
 
 ### Build2EXE interface
 
-The interface provides a simple natural-language requirement field and a single build action.
+The main interface accepts an application requirement and exposes a build action, agent status, live logs, and a downloadable executable field.
 
-![Build2EXE Interface](Build2EXE_input_interface.jpeg)
+![Build2EXE natural-language input interface](./Build2EXE_input_interface.jpeg)
 
-### Successful GitHub Actions build
+### Windows build pipeline
 
-The generated source is pushed to a unique branch in the separate build repository and built on a Windows GitHub Actions runner.
+The screenshot below shows a successful GitHub Actions Windows build for a generated application.
 
-![GitHub Actions Build](Successful_GitHub_Actions_Windows_build.jpeg)
+![Successful GitHub Actions Windows build](./Successful_GitHub_Actions_Windows_build.jpeg)
 
-### Generated executable
+## Repository layout
 
-The resulting executable is returned through the Build2EXE interface.
-
-**Loan Planner:**
-![Loan Planner Executable](loan_planner.jpeg)
-
-**Inventory Manager Dashboard:**
-![Inventory Manager Executable](Generated_Inventory_Manager_executable.jpeg)
-
----
-
-## Build Pipeline
+The main repository contains the orchestration source and demonstration evidence:
 
 ```text
-User Requirement
-       ↓
-AI Code Generation
-       ↓
-src/main.py
-requirements.txt
-       ↓
-py_compile
-       ↓
-Automatic Repair if Required
-       ↓
-Unique Git Branch
-       ↓
-Separate Build Repository
-       ↓
-GitHub Actions
-       ↓
-Windows Runner
-       ↓
-PyInstaller
-       ↓
-windows-exe artifact
-       ↓
-Extract app.exe
-       ↓
-Download
-```
-
-### Separation of repositories
-
-The project intentionally uses **two repositories**:
-
-1. **Main Build2EXE repository**
-   - Contains:
-     - Build2EXE application/orchestration code
-     - README and documentation
-     - Demonstration screenshots
-     - Validation outputs/logs
-
-2. **Separate build repository**
-   - Contains the generated application branch during a build and the GitHub Actions workflow responsible for creating the Windows executable.
-
-This separation keeps the application/orchestration repository distinct from the Windows build infrastructure.
-
----
-
-## Repository Structure
-
-### Main Build2EXE repository
-
-```
 Build2EXE-DMDP-IIMA-term6-/
-│
 ├── README.md
 ├── build2exe.py
-│
-├── loan_planner.jpeg
-├── Generated_Inventory_Manager_executable.jpeg
 ├── Build2EXE_input_interface.jpeg
 ├── Successful_GitHub_Actions_Windows_build.jpeg
-│
+├── loan_planner.jpeg
+├── Generated_Inventory_Manager_executable.jpeg
 ├── product_level_stock_information.jpeg
 ├── reorder_analysis.jpeg
 ├── transaction_interface.jpeg
-│
 ├── csv_export_inventory.jpeg
 ├── csv_downloaded.jpeg
 ├── inventory_addition.jpeg
-│
 ├── inventoryreport.csv
 ├── reorderreport.csv
 ├── testcsv.csv
-│
 ├── logapp1.txt
 └── logapp2.txt
 ```
 
-### Separate Windows build repository
+The Windows packaging repository contains the GitHub Actions workflow and the generated application branch structure:
 
-```
-agentic-exe-builder_1
-│
+```text
+agentic-exe-builder_1/
 ├── .github/
 │   └── workflows/
 │       └── build-exe.yml
-│
 ├── src/
-│   └── main.py
-│
-└── requirements.txt
+│   └── main.py             # generated per build
+└── requirements.txt        # generated per build
 ```
 
-The `.github/workflows/build-exe.yml` workflow is **not** part of the main Build2EXE repository. It belongs to the separate build repository used for automated Windows packaging.
+## Run the MVP
 
----
+### Execution environment
 
-## Current MVP Scope
+The current implementation is designed around **Google Colab** and uses Colab's Secrets interface through `google.colab.userdata`. The repository currently publishes `build2exe.py`, but the file contains notebook-specific syntax and is **not a conventional standalone Python script**; running `python build2exe.py` is not a supported setup path. For a reproducible fresh setup, the original notebook should be committed or the implementation should be converted into standard Python modules with a dependency file.
 
-The MVP is intentionally focused.
+### Required accounts and configuration
 
-### Current scope
+- A Google Colab environment for running the orchestration code
+- An OpenAI API key for model-backed code generation
+- A GitHub token authorized to write to the configured build repository and dispatch its Actions workflow
+- Git available in the execution environment
+- The separate build repository configured with the Windows workflow
 
-- Plain-English Windows application requirements
-- Python application generation
-- GPT-4.1-mini coding agent
-- File-based code generation
-- Compile-level validation
-- Automatic syntax repair
-- Git branch creation
-- Separate Windows build repository
-- GitHub Actions build
-- Windows executable packaging
-- Artifact extraction
-- Downloadable `.exe`
+### Colab secrets
 
-### Current product positioning
+Add these values under **Google Colab → Secrets**:
 
-Build2EXE is not intended to replace a full software engineering team.
+| Secret | Purpose |
+|---|---|
+| `OPENAI_API_KEY` | Authenticates model requests |
+| `GITHUB_TOKEN` | Clones/pushes to the build repository, dispatches Actions, and retrieves workflow artifacts |
 
-It is designed to reduce the technical barrier between:
-
-> "I need this application"
-
-and
-
-> "Here is a Windows executable."
-
----
-
-## Known Limitations
-
-### 1. Plain-English requirements can be ambiguous
-
-A natural-language request may not contain enough technical detail for an AI coding model to reliably infer every requirement.
-
-This motivates a future **Requirement Specification Agent** between the user and coding agent:
-
-```text
-Plain-English Requirement
-          ↓
-Requirement Specification Agent
-          ↓
-Structured Technical Specification
-          ↓
-Coding Agent
-```
-
-### 2. Coding-model capability matters
-
-The current MVP uses GPT-4.1-mini because of its economic suitability.
-
-More complex applications may require a stronger coding-oriented model.
-
-### 3. Compile validation is not runtime validation
-
-`py_compile` can detect syntax-level failures, but it cannot prove that:
-
-- every feature works correctly
-- calculations are correct
-- the UI behaves as intended
-- dependencies behave correctly at runtime
-- the generated application matches every semantic requirement
-
-Future versions therefore require stronger runtime and functional validation.
-
-### 4. Windows desktop packaging
-
-The current MVP focuses on Windows `.exe` generation.
-
-Cross-platform packaging is a future extension rather than a current MVP capability.
-
-### MVP Validation
-
-The project uses two substantial applications as feasibility demonstrations:
-
-- Loan Planner
-- Inventory Manager
-
-These cases demonstrate that the pipeline can generate, package, and execute applications with meaningful functionality.
-
-They should be interpreted as **feasibility evidence**, not as a statistically significant estimate of overall application-generation reliability.
-
-The MVP success benchmark is initially targeted around **60%**, with further testing required to establish a robust production-level success rate.
-
-### Performance
-
-The observed MVP build time is approximately:
-
-**5–6 minutes per successful EXE generation**
-
-The product KPI is:
-
-**Time-to-EXE < 10 minutes**
-
-The observed result is within the current MVP target.
-
----
-
-## Future Roadmap
-
-### V1 — More reliable requirements
-
-Introduce a dedicated requirement-specification stage:
-
-```text
-Plain-English Requirement
-        ↓
-Specification Agent
-        ↓
-Structured Specification
-        ↓
-Coding Agent
-        ↓
-Validation / Repair
-        ↓
-Windows EXE
-```
-
-This should reduce failures caused by ambiguous user requirements.
-
-### V2 — Stronger application validation
-
-Add:
-
-- runtime smoke tests
-- UI validation
-- application launch testing
-- functional test generation
-- automated regression checks
-- stronger repair loops
-
-### V3 — Broader platform support
-
-Potential future targets include:
-
-- macOS applications
-- Linux applications
-- web applications
-- mobile applications
-- richer deployment targets
-
----
-
-## Security and Secrets
-
-API credentials are not intended to be stored directly in the source code.
-
-The current implementation retrieves:
-
-- `OPENAI_API_KEY`
-- `GITHUB_TOKEN`
-
-from the Google Colab Secrets mechanism.
-
-Before deployment, credentials should remain outside the repository and should never be committed to Git.
-
-### Recommended practice
-
-- Never commit `.env` files containing secrets.
-- Never commit API keys.
-- Never commit GitHub tokens.
-- Rotate credentials immediately if accidentally exposed.
-- Restrict GitHub token permissions to the minimum required scope.
-
----
-
-## How to Run
-
-### Prerequisites
-
-The MVP is designed to run in Google Colab.
-
-Required credentials:
-
-- `OPENAI_API_KEY`
-- `GITHUB_TOKEN`
-
-Add these through:
-
-`Google Colab → Runtime → Secrets`
-
-### Install dependencies
+The current source pins `requests==2.32.4` and installs these packages at startup:
 
 ```bash
 pip install -qU langchain langchain-openai pydantic langgraph gradio requests==2.32.4
 ```
 
-### Start the application
+Run the notebook-compatible implementation in Colab and launch the Gradio interface. The current code starts Gradio with `share=True`, which creates a shareable public URL; only use that option when you understand who may access the live demo and what information it exposes.
 
-Run the notebook cells and launch the Gradio interface.
+### Example application requirement
 
-The interface provides:
-
-- An application requirement field.
-- A **BUILD WINDOWS EXE** button.
-- Backend status.
-- Live agent logs.
-- A downloadable `app.exe`.
-
-### Example requirement
-
-```
-Create a desktop loan planner that compares three loan scenarios,
-calculates EMI and total interest, displays an amortization schedule,
-and exports the results to CSV.
+```text
+Create a desktop loan planner that compares three loan scenarios, calculates EMI and total interest, displays an amortization schedule, and exports the results to CSV.
 ```
 
----
+## Validation and limitations
 
-## Project Context
+### What the current validation proves
+
+`python -m py_compile src/main.py` checks that the generated Python file can be compiled. It is a useful early syntax gate, but it does **not** validate runtime behavior, UI correctness, calculation accuracy, application completeness, or dependency compatibility.
+
+The repository includes two demonstrated end-to-end build logs where GitHub Actions completed successfully and the artifact retrieval/extraction steps ran. The screenshots and logs are evidence of those examples, not a guarantee that every arbitrary prompt will produce a working application.
+
+The observed build time documented for the MVP is approximately **5–6 minutes per successful EXE generation**, against a target of under 10 minutes. The initial success benchmark is a target around **60%**, not a measured general reliability result from a statistically designed evaluation.
+
+### Known limitations
+
+- **Ambiguous specifications:** The agent may infer requirements incorrectly when a prompt leaves details unspecified.
+- **Syntax-only pre-check:** Compile validation does not replace runtime, UI, functional, or regression testing.
+- **Model capability:** Complex applications may exceed what the current model can reliably generate.
+- **Platform scope:** The current pipeline packages Python applications for Windows only.
+- **Colab dependency:** The current implementation uses Colab-specific secret access and notebook conventions.
+- **Build service dependency:** Generation depends on external OpenAI and GitHub services, a configured build repository, and a successful GitHub Actions run.
+- **Artifact retrieval:** A successful workflow must upload an artifact named `windows-exe` containing `app.exe` for retrieval to complete.
+
+## Security notes
+
+- Store `OPENAI_API_KEY` and `GITHUB_TOKEN` in Colab Secrets; never commit them to source control.
+- Use a dedicated, fine-grained GitHub token with only the repository permissions required for pushing branches, dispatching workflows, and downloading artifacts.
+- The current code uses the token in a Git clone URL. Treat terminal output, logs, shell history, and process listings as potentially sensitive; avoid printing credential-bearing URLs and rotate the token if it is exposed.
+- The current interface launches Gradio with `share=True`. Do not use a public share URL with sensitive requirements, credentials, or private generated source.
+- Review generated source and dependency lists before executing an application. AI-generated code may contain defects or unsafe behavior.
+- Treat screenshots, CSV files, and logs as demo artifacts; do not add real customer data or secrets to the public repository.
+
+## Roadmap
+
+Potential next steps for the MVP include:
+
+1. **Structured requirements:** Add a specification stage that converts ambiguous natural-language prompts into a reviewed technical brief.
+2. **Runtime verification:** Launch the generated app and run smoke tests before artifact delivery.
+3. **Functional checks:** Generate and run tests for key workflows, calculations, and expected outputs.
+4. **Repair with regression checks:** Verify that each repair resolves the reported defect without breaking previously passing behavior.
+5. **Reproducible setup:** Commit the original Colab notebook or convert the implementation into a standard Python package with a pinned requirements file.
+6. **Platform expansion:** Evaluate macOS, Linux, web, and mobile targets only after strengthening the current Windows pipeline.
+
+## Project context
 
 - **Project:** Build2EXE
 - **Tagline:** Prompt. Build. Launch.
-- **Institution:** IIM Ahmedabad
-- **Course:** DMDP — Term 6
+- **Project brand:** Magnetar
+- **Institutional context:** IIM Ahmedabad, DMDP Term 6
 - **Year:** 2026
-- **Organization / Project Brand:** Magnetar
 
----
+## Author
 
-## Demonstration Assets
+**Shubham Kumar Singh**
 
-The main repository includes evidence from the MVP validation process:
+- GitHub: [@shubham-61291](https://github.com/shubham-61291)
+- Repository: [Build2EXE-DMDP-IIMA-term6-](https://github.com/shubham-61291/Build2EXE-DMDP-IIMA-term6-)
 
-| Asset | Purpose |
-|-------|---------|
-| `Build2EXE_input_interface.jpeg` | Build2EXE user interface |
-| `Successful_GitHub_Actions_Windows_build.jpeg` | Successful automated Windows build |
-| `loan_planner.jpeg` | Loan Planner validation application |
-| `Generated_Inventory_Manager_executable.jpeg` | Inventory Manager executable |
-| `product_level_stock_information.jpeg` | Inventory management screen |
-| `reorder_analysis.jpeg` | Reorder analysis |
-| `transaction_interface.jpeg` | Inventory transaction screen |
-| `csv_export_inventory.jpeg` | Inventory report export |
-| `csv_downloaded.jpeg` | Exported CSV evidence |
-| `inventory_addition.jpeg` | Product/inventory addition evidence |
-| `inventoryreport.csv` | Generated inventory report |
-| `reorderreport.csv` | Generated reorder report |
-| `testcsv.csv` | Generated test/export data |
-| `logapp1.txt` | Application/build evidence log |
-| `logapp2.txt` | Application/build evidence log |
+## License
 
----
+This project is intended to be distributed under the MIT License. Ensure the repository contains a `LICENSE` file with the full MIT text before relying on the license notice for redistribution.
 
-## Final Note
+Copyright (c) 2026 Shubham Kumar Singh
 
-Build2EXE is an MVP demonstrating an end-to-end path from natural-language intent to a real Windows executable.
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
-The central product insight is not simply that an AI model can generate Python code. The more important proposition is that code generation, validation, repair, version control, Windows compilation, artifact management, and delivery can be composed into a single user-facing workflow.
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-That architecture provides the foundation for progressively increasing reliability, application complexity, and platform coverage.
-
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
